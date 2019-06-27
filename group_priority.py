@@ -115,11 +115,11 @@ class Member:
         r += value*stats[stat]
     return r
   
-  # weights_file will be the filename of a tsv file containing stat weights for member M and is OTF (of-the-form):
+  # weights_file will be the filename of a file containing tsv stat (name,weight) pairs for member M and is OTF (of-the-form):
   #   stat-name \t stat-weight
   # upgrades_file will be the filename of file containing proposed item upgrades for M and is a series of entries OTF:
   #   item part \t location \t name \t number n
-  #   followed by n pairs of tsv's OTF:
+  #   followed by n pairs of tsv OTF:
   #      stat-name \t stat-weight
   # current_file will be the filename of a file containing current items for M and is a series of entries OTF:
   #   item part \t name \t number n
@@ -127,89 +127,43 @@ class Member:
   #      stat-name \t stat-quantity
   def From_file(weights_file, upgrades_file, current_file):
     try:
-      w = open(weights_file)
+      w = open(weights_file,"r")
     except IOError:
-      print(f"File '{weights_file}' does not exist.")
+      print(f"Input error: File '{weights_file}' does not exist.")
       return None
     
     try:
-      u = open(upgrades_file)
+      u = open(upgrades_file,"r")
     except IOError:
-      print(f"File '{upgrades_file}' does not exist.")
+      print(f"Input error: File '{upgrades_file}' does not exist.")
       return None
 
     try:
-      c = open(current_file)
+      c = open(current_file,"r")
     except IOError:
-      print(f"File '{current_file}' does not exist.")
+      print(f"Input error: File '{current_file}' does not exist.")
       return None
 
     files = [w,u,c]
 
     weights = import_weights(w)
     if(weights == None):
+      print("Input error: failed to import weights")
       close_files(files)
       return None
     upgrades = import_upgrades(u, weights)
     if(upgrades == None):
+      print("Input error: failed to import upgrades")
       close_files(files)
       return None
     current = import_current(c, weights)
     if(current == None):
+      print("Input error: failed to import current")
       close_files(files)
       return None
 
     close_files(files)
     return Member(weights,upgrades,current)
-
-  # import weights from file object w
-  def import_weights(w):
-    l = w.next()
-    weights = dict()
-    if l != '': return None
-    while l != '':
-      l = w.readline().strip("\t")
-      stat_name,stat_value = l
-      weights[stat_name] = stat_value
-    return weights
-
-  # import upgrades from file object u, using weights
-  def import_upgrades(u, weights):
-    l = u.next()
-    upgrades = []
-    if l != '': return None
-    while l != '':
-      part,location,name,n = u.readline().strip("\t")
-      stats = dict()
-      for i in range(n):
-        l = u.readline().strip("\t")
-        if l == '':
-          print(f"Formatting error: expected {n} lines, had {i+1}")
-          return None
-        stat_name,stat_value = l
-        stats[stat_name] = stat_value
-      upgrades += [(part, location, name, Member.evaluate(weights, stats))]
-
-  # import current from file object c
-  def import_current(c, weights):
-    l = c.next()
-    current = dict()
-    if l != '': return None
-    while l != '':
-      part,name,n = c.readline().strip("\t")
-      stats = dict()
-      for i in range(n):
-        l = c.readline().strip("\t")
-        if l == '':
-          print(f"Formatting error: expected {n} lines, had {i+1}")
-          return None
-        stat_name,stat_value = l
-        stats[stat_name] = stat_value
-      current[part] = [name, Member.evaluate(weights, stats)]
-
-  def close_files(files):
-    for f in files:
-      f.close()
 
   def Priority(self):
     destinations = defaultdict(float)
@@ -222,7 +176,67 @@ class Member:
         destination_items[location] += [name]
     return [(k,v,destination_items[k]) for k,v in sorted(destinations.items(),key=operator.itemgetter(1))]
 
+# the following import helper functions have their file structures defined above in Member (i.e. weight file a tsv OTF etc.)
+# import weights from file object w
+def import_weights(w):
+  l = w.readline().rstrip().split('\t')
+  weights = dict()
+  if l == ['']:
+    print("Input error: Empty weights file")
+    return None
+  while l != ['']:
+    print("Debugging",l)
+    stat_name,stat_value = l
+    weights[stat_name] = float(stat_value)
+    l = w.readline().rstrip().split('\t')
+  return weights
 
+# import upgrades from file object u, using weights
+def import_upgrades(u, weights):
+  l = u.readline().rstrip().split('\t')
+  upgrades = []
+  if l == ['']:
+    print("Input error: Empty upgrades file")
+    return None
+  while l != ['']:
+    print("Debugging",l)
+    part,location,name,n = l
+    stats = dict()
+    for i in range(int(n)):
+      l = u.readline().rstrip().split('\t')
+      if l == ['']:
+        print(f"Formatting error: expected {n} lines, had {i+1}")
+        return None
+      stat_name,stat_value = l
+      stats[stat_name] = float(stat_value)
+    upgrades += [(part, location, name, Member.Evaluate(weights, stats))]
+    l = u.readline().rstrip().split('\t')
+  return upgrades
+
+# import current from file object c
+def import_current(c, weights):
+  l = c.readline().rstrip().split('\t')
+  current = dict()
+  if l == ['']:
+    print("Input error: Empty current file")
+    return None
+  while l != ['']:
+    part,name,n = l
+    stats = dict()
+    for i in range(int(n)):
+      l = c.readline().rstrip().split('\t')
+      if l == ['']:
+        print(f"Formatting error: expected {n} lines, had {i+1}")
+        return None
+      stat_name,stat_value = l
+      stats[stat_name] = float(stat_value)
+    current[part] = [name, Member.Evaluate(weights, stats)]
+    l = c.readline().rstrip().split('\t')
+  return current
+
+def close_files(files):
+  for f in files:
+    f.close()
 
 def hc_group_priority(group):
   destinations = defaultdict(float)
@@ -235,10 +249,16 @@ def hc_group_priority(group):
         destinations[location] += d
         destination_items[location] += [name]
   return [(k,v,destination_items[k]) for k,v in sorted(destinations.items(),key=operator.itemgetter(1))]
-group = [(c1,c1_n),(c2,c2_n),(c3,c3_n)]
-g = hc_group_priority(group)
-g.reverse()
-for m in g:
-  location,value,items=m
-  print(f"Value of {round(value)} gained from {location}")
-  print(f"\tfrom: {items}")
+
+# original test from hard-coded values
+#group = [(c1,c1_n),(c2,c2_n),(c3,c3_n)]
+#g = hc_group_priority(group)
+#g.reverse()
+#for m in g:
+#  location,value,items=m
+#  print(f"Value of {round(value)} gained from {location}")
+#  print(f"\tfrom: {items}")
+
+M = Member.From_file("weights.dat","upgrades.dat","current.dat")
+if M is None:
+  print("Error importing member data.")
